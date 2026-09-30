@@ -1,0 +1,74 @@
+name: DDTest action preload
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mocha:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'anmarchenko/express'
+    runs-on: ubuntu-latest
+    env:
+      # Express asserts middleware next-function identity. dd-trace's router
+      # wrapping breaks those assertions; retain Mocha tracing for this test.
+      DD_TRACE_ROUTER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Express dependencies
+        run: npm install --include=dev
+      - name: Install latest DDTest prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          download_url=$(gh api --paginate --slurp 'repos/DataDog/ddtest/releases?per_page=100' | \
+            jq -er 'add | map(select(.prerelease and (.draft | not))) | max_by(.published_at) | .assets[] | select(.name == "ddtest-linux-amd64") | .browser_download_url')
+          test -n "$download_url"
+          echo "Installing $download_url"
+          curl --fail --location --retry 3 "$download_url" --output ddtest
+          chmod +x ddtest
+          ./ddtest --version
+      - name: Require the Datadog API key
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+        run: |
+          if [ -z "$DD_API_KEY" ]; then
+            echo 'Add DD_API_KEY as an Actions repository secret in anmarchenko/express'
+            exit 1
+          fi
+      - name: Configure Datadog Test Optimization
+        uses: datadog/test-visibility-github-action@v3
+        with:
+          languages: js
+          api_key: ${{ secrets.DD_API_KEY }}
+          service: express-ddtest-action
+      - name: Check the action preload is outside the project
+        shell: bash
+        run: |
+          test -n "$DD_TRACE_PACKAGE"
+          NODE_OPTIONS= node -e "require.resolve(process.env.DD_TRACE_PACKAGE)"
+          if NODE_OPTIONS= node -e "require.resolve('dd-trace/ci/init')" 2>/dev/null; then
+            echo 'dd-trace unexpectedly resolves from the Express project'
+            exit 1
+          fi
+      - name: Run Mocha directly with the action preload
+        env:
+          NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
+        run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/ test/acceptance/
+      - name: Plan Mocha tests with DDTest
+        run: |
+          ./ddtest plan --platform javascript --framework mocha \
+            --min-parallelism 1 --max-parallelism 1 \
+            --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
+      - name: Run planned Mocha tests with DDTest
+        run: |
+          ./ddtest run --platform javascript --framework mocha --ci-node 0 \
+            --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
