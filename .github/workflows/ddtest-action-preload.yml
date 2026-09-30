@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   mocha:
+    name: mocha (${{ matrix.preload }})
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'anmarchenko/express'
     runs-on: ubuntu-latest
     env:
@@ -18,7 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preload: [explicit, automatic]
+        include:
+          - preload: explicit
+            node-options: '-r "{0}"'
+          - preload: automatic
+            node-options: ''
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,14 +78,14 @@ jobs:
         run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/ test/acceptance/
       - name: Plan Mocha tests with DDTest
         env:
-          NODE_OPTIONS: ${{ matrix.preload == 'explicit' && format('-r "{0}"', env.DD_TRACE_PACKAGE) || '' }}
+          NODE_OPTIONS: ${{ format(matrix.node-options, env.DD_TRACE_PACKAGE) }}
         run: |
           ./ddtest plan --platform javascript --framework mocha \
             --min-parallelism 1 --max-parallelism 1 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
       - name: Run planned Mocha tests with DDTest
         env:
-          NODE_OPTIONS: ${{ matrix.preload == 'explicit' && format('-r "{0}"', env.DD_TRACE_PACKAGE) || '' }}
+          NODE_OPTIONS: ${{ format(matrix.node-options, env.DD_TRACE_PACKAGE) }}
         run: |
           ./ddtest run --platform javascript --framework mocha --ci-node 0 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
