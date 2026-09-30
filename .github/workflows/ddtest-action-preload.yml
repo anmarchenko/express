@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: DataDog/ddtest
-          ref: 6be0856cd19f5e0e3831baec7bfcd34cccd73b6a # DataDog/ddtest#163: anmarchenko/framework-platform-link
+          ref: 0568f5af56718622e914176674ea1e88a73949ec # DataDog/ddtest#163: anmarchenko/framework-platform-link
           path: ddtest-src
           persist-credentials: false
       - uses: actions/setup-go@v5
