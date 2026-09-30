@@ -34,6 +34,14 @@ jobs:
         run: go build -o "$GITHUB_WORKSPACE/ddtest" .
       - name: Remove the nested DDTest checkout
         run: rm -rf ddtest-src
+      - name: Require the Datadog API key
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+        run: |
+          if [ -z "$DD_API_KEY" ]; then
+            echo 'Add DD_API_KEY as an Actions repository secret in anmarchenko/express'
+            exit 1
+          fi
       - name: Configure Datadog Test Optimization
         uses: datadog/test-visibility-github-action@v3
         with:
