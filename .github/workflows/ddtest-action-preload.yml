@@ -9,21 +9,12 @@ permissions:
 
 jobs:
   mocha:
-    name: mocha (${{ matrix.preload }})
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'anmarchenko/express'
     runs-on: ubuntu-latest
     env:
       # Express asserts middleware next-function identity. dd-trace's router
       # wrapping breaks those assertions; retain Mocha tracing for this test.
       DD_TRACE_ROUTER_ENABLED: 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - preload: explicit
-            node-options: '-r "{0}"'
-          - preload: automatic
-            node-options: ''
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,22 +24,18 @@ jobs:
           node-version: '22'
       - name: Install Express dependencies
         run: npm install --include=dev
-      - uses: actions/checkout@v4
-        with:
-          repository: DataDog/ddtest
-          ref: 0568f5af56718622e914176674ea1e88a73949ec # DataDog/ddtest#163: anmarchenko/framework-platform-link
-          path: ddtest-src
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: ddtest-src/go.mod
-      - name: Build DDTest from the platform refactoring PR
-        working-directory: ddtest-src
+      - name: Install latest DDTest prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git rev-parse HEAD
-          go build -o "$GITHUB_WORKSPACE/ddtest" .
-      - name: Remove the nested DDTest checkout
-        run: rm -rf ddtest-src
+          download_url=$(gh api --paginate --slurp 'repos/DataDog/ddtest/releases?per_page=100' | \
+            jq -er 'add | map(select(.prerelease and (.draft | not))) | max_by(.published_at) | .assets[] | select(.name == "ddtest-linux-amd64") | .browser_download_url')
+          test -n "$download_url"
+          echo "Installing $download_url"
+          curl --fail --location --retry 3 "$download_url" --output ddtest
+          chmod +x ddtest
+          ./ddtest --version
       - name: Require the Datadog API key
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
@@ -77,15 +64,11 @@ jobs:
           NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
         run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/ test/acceptance/
       - name: Plan Mocha tests with DDTest
-        env:
-          NODE_OPTIONS: ${{ format(matrix.node-options, env.DD_TRACE_PACKAGE) }}
         run: |
           ./ddtest plan --platform javascript --framework mocha \
             --min-parallelism 1 --max-parallelism 1 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
       - name: Run planned Mocha tests with DDTest
-        env:
-          NODE_OPTIONS: ${{ format(matrix.node-options, env.DD_TRACE_PACKAGE) }}
         run: |
           ./ddtest run --platform javascript --framework mocha --ci-node 0 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
