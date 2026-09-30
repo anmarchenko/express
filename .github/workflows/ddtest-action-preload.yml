@@ -11,6 +11,10 @@ jobs:
   mocha:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'anmarchenko/express'
     runs-on: ubuntu-latest
+    env:
+      # Express asserts middleware next-function identity. dd-trace's router
+      # wrapping breaks those assertions; retain Mocha tracing for this test.
+      DD_TRACE_ROUTER_ENABLED: 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +70,7 @@ jobs:
       - name: Run Mocha directly with the action preload
         env:
           NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
-        run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/app.js
+        run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/ test/acceptance/
       - name: Plan Mocha tests with DDTest
         env:
           NODE_OPTIONS: ${{ matrix.preload == 'explicit' && format('-r "{0}"', env.DD_TRACE_PACKAGE) || '' }}
