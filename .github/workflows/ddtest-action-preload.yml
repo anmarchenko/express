@@ -11,6 +11,10 @@ jobs:
   mocha:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'anmarchenko/express'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preload: [explicit, automatic]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,15 +27,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: DataDog/ddtest
-          ref: 77a23f4c8b7688defaaa8477ec298c523101c210
+          ref: 6be0856cd19f5e0e3831baec7bfcd34cccd73b6a # DataDog/ddtest#163: anmarchenko/framework-platform-link
           path: ddtest-src
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: ddtest-src/go.mod
-      - name: Build DDTest from the reproduction PR
+      - name: Build DDTest from the platform refactoring PR
         working-directory: ddtest-src
-        run: go build -o "$GITHUB_WORKSPACE/ddtest" .
+        run: |
+          git rev-parse HEAD
+          go build -o "$GITHUB_WORKSPACE/ddtest" .
       - name: Remove the nested DDTest checkout
         run: rm -rf ddtest-src
       - name: Require the Datadog API key
@@ -63,14 +69,14 @@ jobs:
         run: ./node_modules/.bin/mocha --require test/support/env --reporter dot --check-leaks test/app.js
       - name: Plan Mocha tests with DDTest
         env:
-          NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
+          NODE_OPTIONS: ${{ matrix.preload == 'explicit' && format('-r "{0}"', env.DD_TRACE_PACKAGE) || '' }}
         run: |
           ./ddtest plan --platform javascript --framework mocha \
             --min-parallelism 1 --max-parallelism 1 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
       - name: Run planned Mocha tests with DDTest
         env:
-          NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
+          NODE_OPTIONS: ${{ matrix.preload == 'explicit' && format('-r "{0}"', env.DD_TRACE_PACKAGE) || '' }}
         run: |
           ./ddtest run --platform javascript --framework mocha --ci-node 0 \
             --command "./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/"
