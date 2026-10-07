@@ -13,6 +13,9 @@ yarn.lock
 .nyc_output
 coverage
 
+# Datadog Test Optimization
+.testoptimization/
+
 # Benchmarking
 benchmarks/graphs
 

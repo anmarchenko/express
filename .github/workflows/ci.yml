@@ -75,9 +75,40 @@ jobs:
           echo "Node.js version: $(node -v)"
           echo "NPM version: $(npm -v)"
 
+      - name: Install Datadog test runner
+        shell: bash
+        run: |
+          mkdir -p bin
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ddtest_bin=bin/ddtest.exe
+            ddtest_asset=ddtest-windows-amd64.exe
+          else
+            ddtest_bin=bin/ddtest
+            ddtest_asset=ddtest-linux-amd64
+          fi
+          curl -fsSL "https://github.com/DataDog/ddtest/releases/latest/download/$ddtest_asset" -o "$ddtest_bin"
+          chmod +x "$ddtest_bin"
+          echo "DDTEST_BIN=$ddtest_bin" >> "$GITHUB_ENV"
+
+      - name: Configure Datadog Test Optimization
+        uses: datadog/test-visibility-github-action@v3
+        with:
+          languages: js
+          api_key: ${{ secrets.DD_API_KEY }}
+          site: datadoghq.com
+          js-tracer-version: 5.111.0
+
       - name: Run tests
         shell: bash
-        run: npm run test-ci
+        env:
+          NODE_OPTIONS: -r ${{ env.DD_TRACE_PACKAGE }}
+          DD_TRACE_DISABLED_PLUGINS: http,router
+        run: |
+          rm -rf .testoptimization
+          rm -rf .nyc_output
+          mkdir -p .nyc_output/processinfo
+          "$DDTEST_BIN" run --platform javascript --framework mocha --command "node_modules/.bin/mocha --require test/support/env --require .github/nyc-hook --reporter spec --check-leaks test/ test/acceptance/" --min-parallelism 1 --max-parallelism 4
+          node_modules/.bin/nyc report --reporter=lcovonly --reporter=text
 
       - name: Upload code coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
